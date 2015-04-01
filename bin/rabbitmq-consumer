@@ -1,0 +1,25 @@
+#!/usr/bin/env ruby
+
+require_relative '../lib/primarbbin'
+require 'bunny'
+require 'yaml'
+
+# Start a communication session with RabbitMQ
+conn = Bunny.new(:host => 'rabbitmq')
+conn.start
+
+file_name = File.expand_path('rabbitmq.yml', File.dirname(__FILE__))
+unless File.readable?(file_name)
+  raise 'Impossibile leggere il file'
+end
+conf = YAML.load(File.read file_name)
+
+cons = conf['old_sound_rabbit_mq']['consumers']
+puts sprintf('ci sono %s consumer da dichiarare', cons.length)
+
+
+# open a channel
+ch = conn.create_channel
+
+# declare a queue
+q  = ch.queue('test1')

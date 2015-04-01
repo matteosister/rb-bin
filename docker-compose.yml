@@ -1,0 +1,11 @@
+rb:
+  build: .
+  links:
+    - rabbitmq
+  volumes:
+    - .:/code
+
+rabbitmq:
+  image: rabbitmq:3-management
+  ports:
+    - "15672:15672"
