@@ -3,23 +3,53 @@
 require_relative '../lib/primarbbin'
 require 'bunny'
 require 'yaml'
+require 'colorize'
+require 'optparse'
 
-# Start a communication session with RabbitMQ
-conn = Bunny.new(:host => 'rabbitmq')
-conn.start
-
-file_name = File.expand_path('rabbitmq.yml', File.dirname(__FILE__))
-unless File.readable?(file_name)
-  raise 'Impossibile leggere il file'
+def error(msg)
+  puts msg.red
+  exit(1)
 end
-conf = YAML.load(File.read file_name)
 
-cons = conf['old_sound_rabbit_mq']['consumers']
-puts sprintf('ci sono %s consumer da dichiarare', cons.length)
+step = lambda { |msg| puts '--  ' + msg }
 
+# command line
+options = {}
+OptionParser.new do |opts|
+  options[:queue_name] = nil
+  opts.banner = "Usage: #{__FILE__} [options]"
 
-# open a channel
-ch = conn.create_channel
+  opts.on('-c', '--config CONFIG_FILE', 'config file') do |c|
+    options[:file_name] = c
+  end
+  opts.on('-q', '--queue QUEUE', 'queue to be consumed') do |q|
+    options[:queue_name] = q
+  end
+end.parse!
 
-# declare a queue
-q  = ch.queue('test1')
+step.call 'start a connection session with RabbitMQ'.light_green
+conn = Bunny.new(:host => 'rabbitmq')
+rabbit_connector = RabbitConnector.new(conn, step)
+ch = rabbit_connector.open_channel
+
+step.call 'loading yaml configuration'.light_green
+yaml_loader = YamlLoader.new(options[:file_name])
+
+cons = yaml_loader.consumers
+step.call sprintf('There are %s consumers declared', cons.length).light_green
+
+if options[:queue_name].nil?
+  cons.keys.each { |queue_name|
+    rabbit_connector.declare_queue(ch, queue_name, cons[queue_name])
+  }
+else
+  queue_name = options[:queue_name]
+  q = rabbit_connector.declare_queue(ch, queue_name, cons[queue_name])
+  callback = cons[queue_name]['callback']
+  step.call 'start listening for messages...'.green
+  q.subscribe(:block => true, :manual_ack => true) do |delivery_info, properties, payload|
+    puts delivery_info[:routing_key]
+    puts "Received #{payload}, message properties are #{properties.inspect}. Calling #{callback}"
+    ch.acknowledge(delivery_info.delivery_tag)
+  end
+end
